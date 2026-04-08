@@ -1,5 +1,7 @@
 # ssrf
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/chrj/ssrf.svg)](https://pkg.go.dev/github.com/chrj/ssrf)
+
 Go package that protects against **Server-Side Request Forgery (SSRF)** by
 providing a drop-in `DialContext` for `http.Transport`.
 
