@@ -314,7 +314,7 @@ func TestWithResolver_UsesCustomResolver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go acceptAndClose(ln)
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
@@ -328,7 +328,7 @@ func TestWithResolver_UsesCustomResolver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected connection via custom resolver, got: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	if dns.queryCount() == 0 {
 		t.Error("expected custom resolver to be called at least once")
@@ -348,7 +348,7 @@ func TestDialContext_DNSRebindingProtection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go acceptAndClose(ln)
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
@@ -379,7 +379,7 @@ func TestDialContext_DNSRebindingProtection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected successful connection, got: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	if got := dns.aQueryCount() - before; got != 1 {
 		t.Errorf("got %d A-record DNS queries per dial; want 1 (extra queries indicate re-resolution during connect)", got)
@@ -487,7 +487,7 @@ func newFakeDNSServer(t *testing.T, records map[string]net.IP) *fakeDNSServer {
 		t.Fatal(err)
 	}
 	srv := &fakeDNSServer{records: records, conn: conn}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	go srv.serve()
 	return srv
 }
