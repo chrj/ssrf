@@ -22,7 +22,7 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("ssrf: %s", e.Reason)
+	return "ssrf: " + e.Reason
 }
 
 // privateRanges contains the well-known private, loopback, link-local, and
@@ -218,18 +218,18 @@ func DialContext(opts ...Option) func(ctx context.Context, network, addr string)
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("split host port: %w", err)
 		}
 
 		// Resolve the host to IP addresses. This is the only DNS lookup that
 		// occurs; the validated IP is used directly in the dial below.
 		addrs, err := resolver.LookupIPAddr(ctx, host)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("resolve %q: %w", host, err)
 		}
 
 		if len(addrs) == 0 {
-			return nil, &Error{Reason: fmt.Sprintf("no addresses found for host %s", host)}
+			return nil, &Error{Reason: "no addresses found for host " + host}
 		}
 
 		// Find the first IP that passes all checks and attempt to dial it.

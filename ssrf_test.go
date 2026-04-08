@@ -3,6 +3,7 @@ package ssrf_test
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -292,7 +293,10 @@ func TestHTTPTransport_Integration(t *testing.T) {
 			DialContext: ssrf.DialContext(ssrf.NoPrivateRanges()),
 		}
 		client := &http.Client{Transport: tr}
-		_, err := client.Get("http://127.0.0.1:" + port + "/")
+		resp, err := client.Get("http://127.0.0.1:" + port + "/")
+		if resp != nil {
+			resp.Body.Close()
+		}
 		if err == nil {
 			t.Fatal("expected error but got none")
 		}
@@ -378,7 +382,7 @@ func TestDialContext_DNSRebindingProtection(t *testing.T) {
 	conn.Close()
 
 	if got := dns.aQueryCount() - before; got != 1 {
-		t.Errorf("expected exactly 1 A-record DNS query per dial call (got %d) — more than 1 would indicate re-resolution during connect", got)
+		t.Errorf("got %d A-record DNS queries per dial; want 1 (extra queries indicate re-resolution during connect)", got)
 	}
 }
 
@@ -431,8 +435,8 @@ func isSsrfError(err error) bool {
 	if err == nil {
 		return false
 	}
-	_, ok := err.(*ssrf.Error)
-	return ok
+	var ssrfErr *ssrf.Error
+	return errors.As(err, &ssrfErr)
 }
 
 func checkSSRFError(t *testing.T, err error, wantSubstr string) {
@@ -440,8 +444,8 @@ func checkSSRFError(t *testing.T, err error, wantSubstr string) {
 	if err == nil {
 		t.Fatalf("expected an ssrf.Error containing %q, got nil", wantSubstr)
 	}
-	ssrfErr, ok := err.(*ssrf.Error)
-	if !ok {
+	var ssrfErr *ssrf.Error
+	if !errors.As(err, &ssrfErr) {
 		t.Fatalf("expected *ssrf.Error, got %T: %v", err, err)
 	}
 	if !strings.Contains(ssrfErr.Reason, wantSubstr) {
