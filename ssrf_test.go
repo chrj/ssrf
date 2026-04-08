@@ -48,7 +48,7 @@ func TestIPv4Only_AllowsIPv4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go acceptAndClose(ln)
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
@@ -57,7 +57,7 @@ func TestIPv4Only_AllowsIPv4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IPv4Only should allow IPv4 address: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 }
 
 func TestIPv4Only_BlocksIPv6(t *testing.T) {
@@ -225,7 +225,7 @@ func TestDialContext_ResolvesHostname(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	addr := net.JoinHostPort("localhost", port)
@@ -236,7 +236,7 @@ func TestDialContext_ResolvesHostname(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected connection to succeed, got: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 }
 
 func TestDialContext_BlocksLocalhost_NoPrivate(t *testing.T) {
@@ -244,7 +244,7 @@ func TestDialContext_BlocksLocalhost_NoPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	addr := net.JoinHostPort("localhost", port)
@@ -261,7 +261,7 @@ func TestHTTPTransport_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	go func() {
 		for {
@@ -270,7 +270,7 @@ func TestHTTPTransport_Integration(t *testing.T) {
 				return
 			}
 			conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")) //nolint:errcheck
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -285,7 +285,7 @@ func TestHTTPTransport_Integration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	})
 
 	t.Run("NoPrivateRanges blocks loopback", func(t *testing.T) {
@@ -295,7 +295,7 @@ func TestHTTPTransport_Integration(t *testing.T) {
 		client := &http.Client{Transport: tr}
 		resp, err := client.Get("http://127.0.0.1:" + port + "/")
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		if err == nil {
 			t.Fatal("expected error but got none")
@@ -461,7 +461,7 @@ func acceptAndClose(ln net.Listener) {
 		if err != nil {
 			return
 		}
-		c.Close()
+		_ = c.Close()
 	}
 }
 
