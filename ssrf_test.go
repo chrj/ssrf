@@ -3,6 +3,7 @@ package ssrf_test
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -47,7 +48,7 @@ func TestIPv4Only_AllowsIPv4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go acceptAndClose(ln)
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
@@ -56,7 +57,7 @@ func TestIPv4Only_AllowsIPv4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("IPv4Only should allow IPv4 address: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 }
 
 func TestIPv4Only_BlocksIPv6(t *testing.T) {
@@ -224,7 +225,7 @@ func TestDialContext_ResolvesHostname(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	addr := net.JoinHostPort("localhost", port)
@@ -235,7 +236,7 @@ func TestDialContext_ResolvesHostname(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected connection to succeed, got: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 }
 
 func TestDialContext_BlocksLocalhost_NoPrivate(t *testing.T) {
@@ -243,7 +244,7 @@ func TestDialContext_BlocksLocalhost_NoPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	addr := net.JoinHostPort("localhost", port)
@@ -260,7 +261,7 @@ func TestHTTPTransport_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	go func() {
 		for {
@@ -269,7 +270,7 @@ func TestHTTPTransport_Integration(t *testing.T) {
 				return
 			}
 			conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")) //nolint:errcheck
-			conn.Close()
+			_ = conn.Close()
 		}
 	}()
 
@@ -284,7 +285,7 @@ func TestHTTPTransport_Integration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	})
 
 	t.Run("NoPrivateRanges blocks loopback", func(t *testing.T) {
@@ -292,7 +293,10 @@ func TestHTTPTransport_Integration(t *testing.T) {
 			DialContext: ssrf.DialContext(ssrf.NoPrivateRanges()),
 		}
 		client := &http.Client{Transport: tr}
-		_, err := client.Get("http://127.0.0.1:" + port + "/")
+		resp, err := client.Get("http://127.0.0.1:" + port + "/")
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
 		if err == nil {
 			t.Fatal("expected error but got none")
 		}
@@ -310,7 +314,7 @@ func TestWithResolver_UsesCustomResolver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go acceptAndClose(ln)
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
@@ -324,7 +328,7 @@ func TestWithResolver_UsesCustomResolver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected connection via custom resolver, got: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	if dns.queryCount() == 0 {
 		t.Error("expected custom resolver to be called at least once")
@@ -344,7 +348,7 @@ func TestDialContext_DNSRebindingProtection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go acceptAndClose(ln)
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
@@ -375,10 +379,10 @@ func TestDialContext_DNSRebindingProtection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected successful connection, got: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	if got := dns.aQueryCount() - before; got != 1 {
-		t.Errorf("expected exactly 1 A-record DNS query per dial call (got %d) — more than 1 would indicate re-resolution during connect", got)
+		t.Errorf("got %d A-record DNS queries per dial; want 1 (extra queries indicate re-resolution during connect)", got)
 	}
 }
 
@@ -431,8 +435,8 @@ func isSsrfError(err error) bool {
 	if err == nil {
 		return false
 	}
-	_, ok := err.(*ssrf.Error)
-	return ok
+	var ssrfErr *ssrf.Error
+	return errors.As(err, &ssrfErr)
 }
 
 func checkSSRFError(t *testing.T, err error, wantSubstr string) {
@@ -440,8 +444,8 @@ func checkSSRFError(t *testing.T, err error, wantSubstr string) {
 	if err == nil {
 		t.Fatalf("expected an ssrf.Error containing %q, got nil", wantSubstr)
 	}
-	ssrfErr, ok := err.(*ssrf.Error)
-	if !ok {
+	var ssrfErr *ssrf.Error
+	if !errors.As(err, &ssrfErr) {
 		t.Fatalf("expected *ssrf.Error, got %T: %v", err, err)
 	}
 	if !strings.Contains(ssrfErr.Reason, wantSubstr) {
@@ -457,7 +461,7 @@ func acceptAndClose(ln net.Listener) {
 		if err != nil {
 			return
 		}
-		c.Close()
+		_ = c.Close()
 	}
 }
 
@@ -483,7 +487,7 @@ func newFakeDNSServer(t *testing.T, records map[string]net.IP) *fakeDNSServer {
 		t.Fatal(err)
 	}
 	srv := &fakeDNSServer{records: records, conn: conn}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	go srv.serve()
 	return srv
 }
