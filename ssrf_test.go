@@ -407,6 +407,17 @@ func TestAllowCIDR_PanicOnBadCIDR(t *testing.T) {
 	ssrf.AllowCIDR("not-a-cidr")
 }
 
+// ---- IPv4Only + IPv6Only mutual exclusion -----------------------------------
+
+func TestIPv4OnlyAndIPv6Only_Panics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic when both IPv4Only and IPv6Only are set")
+		}
+	}()
+	ssrf.DialContext(ssrf.IPv4Only(), ssrf.IPv6Only())
+}
+
 // ---- DenyCIDR panic on bad CIDR --------------------------------------------
 
 func TestDenyCIDR_PanicOnBadCIDR(t *testing.T) {

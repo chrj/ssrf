@@ -208,6 +208,10 @@ func DialContext(opts ...Option) func(ctx context.Context, network, addr string)
 		opt(o)
 	}
 
+	if o.ipv4Only && o.ipv6Only {
+		panic("ssrf: IPv4Only and IPv6Only are mutually exclusive")
+	}
+
 	resolver := o.resolver
 	if resolver == nil {
 		resolver = net.DefaultResolver
