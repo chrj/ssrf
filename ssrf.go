@@ -215,7 +215,50 @@ func NewDialer(opts ...Option) *Dialer {
 // IPv4-mapped IPv6 addresses (e.g. ::ffff:192.168.1.1) are normalised to
 // their 4-byte IPv4 form so that IPv4 private-range rules apply correctly.
 func (d *Dialer) CheckIP(ip net.IP) error {
-	return checkIP(ip, d.opts)
+
+	// Normalise IPv4-in-IPv6 (e.g. ::ffff:192.168.1.1) → plain IPv4, so that
+	// IPv4 range checks fire and the address is not misidentified as IPv6.
+	if ip4 := ip.To4(); ip4 != nil {
+		ip = ip4
+	}
+	isIPv4 := len(ip) == net.IPv4len
+
+	if d.opts.ipv4Only && !isIPv4 {
+		return &Error{Reason: fmt.Sprintf("IPv6 address %s is not allowed (IPv4 only)", ip)}
+	}
+
+	if d.opts.ipv6Only && isIPv4 {
+		return &Error{Reason: fmt.Sprintf("IPv4 address %s is not allowed (IPv6 only)", ip)}
+	}
+
+	if d.opts.noPrivate {
+		for _, r := range privateRanges {
+			if r.Contains(ip) {
+				return &Error{Reason: fmt.Sprintf("address %s is in a private or reserved range (%s)", ip, r)}
+			}
+		}
+	}
+
+	for _, r := range d.opts.denyCIDRs {
+		if r.Contains(ip) {
+			return &Error{Reason: fmt.Sprintf("address %s is in a denied range (%s)", ip, r)}
+		}
+	}
+
+	if len(d.opts.allowCIDRs) > 0 {
+		allowed := false
+		for _, r := range d.opts.allowCIDRs {
+			if r.Contains(ip) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return &Error{Reason: fmt.Sprintf("address %s is not in any allowed range", ip)}
+		}
+	}
+
+	return nil
 }
 
 // DialContext resolves the hostname in addr to IP addresses, validates each
@@ -243,7 +286,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 	for _, ipAddr := range addrs {
 		ip := ipAddr.IP
 
-		if err := checkIP(ip, d.opts); err != nil {
+		if err := d.CheckIP(ip); err != nil {
 			lastErr = err
 			continue
 		}
@@ -273,117 +316,4 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 // http.Transport instead.
 func DialContext(opts ...Option) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return NewDialer(opts...).DialContext
-}
-
-// checkIP validates a single IP address against the configured options.
-// It returns nil if the IP is allowed, or an *Error explaining the denial.
-func checkIP(ip net.IP, o *options) error {
-	// Normalise IPv4-in-IPv6 (e.g. ::ffff:192.168.1.1) → plain IPv4, so that
-	// IPv4 range checks fire and the address is not misidentified as IPv6.
-	if ip4 := ip.To4(); ip4 != nil {
-		ip = ip4
-	}
-	isIPv4 := len(ip) == net.IPv4len
-
-	if o.ipv4Only && !isIPv4 {
-		return &Error{Reason: fmt.Sprintf("IPv6 address %s is not allowed (IPv4 only)", ip)}
-	}
-
-	if o.ipv6Only && isIPv4 {
-		return &Error{Reason: fmt.Sprintf("IPv4 address %s is not allowed (IPv6 only)", ip)}
-	}
-
-	if o.noPrivate {
-		for _, r := range privateRanges {
-			if r.Contains(ip) {
-				return &Error{Reason: fmt.Sprintf("address %s is in a private or reserved range (%s)", ip, r)}
-			}
-		}
-	}
-
-	for _, r := range o.denyCIDRs {
-		if r.Contains(ip) {
-			return &Error{Reason: fmt.Sprintf("address %s is in a denied range (%s)", ip, r)}
-		}
-	}
-
-	if len(o.allowCIDRs) > 0 {
-		allowed := false
-		for _, r := range o.allowCIDRs {
-			if r.Contains(ip) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return &Error{Reason: fmt.Sprintf("address %s is not in any allowed range", ip)}
-		}
-	}
-
-	return nil
-}
-
-// DialContext returns a DialContext function suitable for use with
-// http.Transport.DialContext. The returned function resolves hostnames to IP
-// addresses exactly once per call using LookupIPAddr, validates each resolved
-// IP against all configured rules, and then dials using the validated raw IP
-// address. Dialing with a raw IP (rather than the original hostname) ensures
-// that no second DNS resolution occurs during the TCP connect, which prevents
-// DNS rebinding attacks.
-func DialContext(opts ...Option) func(ctx context.Context, network, addr string) (net.Conn, error) {
-	o := &options{}
-	for _, opt := range opts {
-		opt(o)
-	}
-
-	resolver := o.resolver
-	if resolver == nil {
-		resolver = net.DefaultResolver
-	}
-
-	var dialer net.Dialer
-
-	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		host, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			return nil, fmt.Errorf("split host port: %w", err)
-		}
-
-		// Resolve the host to IP addresses. This is the only DNS lookup that
-		// occurs; the validated IP is used directly in the dial below.
-		addrs, err := resolver.LookupIPAddr(ctx, host)
-		if err != nil {
-			return nil, fmt.Errorf("resolve %q: %w", host, err)
-		}
-
-		if len(addrs) == 0 {
-			return nil, &Error{Reason: "no addresses found for host " + host}
-		}
-
-		// Find the first IP that passes all checks and attempt to dial it.
-		var lastErr error
-		for _, ipAddr := range addrs {
-			ip := ipAddr.IP
-
-			if err := checkIP(ip, o); err != nil {
-				lastErr = err
-				continue
-			}
-
-			// Dial with the raw IP so we bypass any further DNS resolution and
-			// prevent DNS rebinding attacks.
-			dialAddr := net.JoinHostPort(ip.String(), port)
-			conn, err := dialer.DialContext(ctx, network, dialAddr)
-			if err != nil {
-				lastErr = err
-				continue
-			}
-			return conn, nil
-		}
-
-		if lastErr != nil {
-			return nil, lastErr
-		}
-		return nil, &Error{Reason: fmt.Sprintf("all resolved addresses for %s were denied", host)}
-	}
 }
