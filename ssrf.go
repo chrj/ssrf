@@ -77,6 +77,12 @@ func init() {
 	}
 }
 
+// Resolver is the interface used for hostname resolution. Both *net.Resolver
+// and github.com/foxcpp/go-mockdns.Resolver satisfy this interface.
+type Resolver interface {
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
+}
+
 // options holds the configuration for the SSRF protection dialer.
 type options struct {
 	ipv4Only   bool
@@ -84,7 +90,7 @@ type options struct {
 	noPrivate  bool
 	allowCIDRs []*net.IPNet
 	denyCIDRs  []*net.IPNet
-	resolver   *net.Resolver
+	resolver   Resolver
 	dialer     *net.Dialer
 }
 
@@ -150,8 +156,9 @@ func parseCIDRs(caller string, cidrs []string) []*net.IPNet {
 // WithResolver sets a custom DNS resolver to use for hostname resolution.
 // If not provided, net.DefaultResolver is used. This is useful in tests to
 // inject a fake resolver and to verify DNS rebinding protection, and in
-// production to use a specific DNS server.
-func WithResolver(r *net.Resolver) Option {
+// production to use a specific DNS server. Any value implementing the
+// Resolver interface (including *net.Resolver) is accepted.
+func WithResolver(r Resolver) Option {
 	return func(o *options) {
 		o.resolver = r
 	}
