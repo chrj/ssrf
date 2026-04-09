@@ -183,7 +183,7 @@ type Dialer struct {
 
 // New creates a new Dialer with the given options.
 // Panics if the options are contradictory (e.g. both IPv4Only and IPv6Only).
-func New(opts ...Option) *Dialer {
+func NewDialer(opts ...Option) *Dialer {
 	o := &options{}
 	for _, opt := range opts {
 		opt(o)
@@ -272,7 +272,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 // Deprecated: Use New to create a Dialer and pass d.DialContext to
 // http.Transport instead.
 func DialContext(opts ...Option) func(ctx context.Context, network, addr string) (net.Conn, error) {
-	return New(opts...).DialContext
+	return NewDialer(opts...).DialContext
 }
 
 // checkIP validates a single IP address against the configured options.

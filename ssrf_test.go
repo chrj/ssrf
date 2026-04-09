@@ -399,7 +399,7 @@ func TestDialContext_InvalidAddr(t *testing.T) {
 // ---- New / Dialer struct ----------------------------------------------------
 
 func TestNew_ReturnsDialer(t *testing.T) {
-	d := ssrf.New(ssrf.NoPrivateRanges())
+	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
 	if d == nil {
 		t.Fatal("New returned nil")
 	}
@@ -414,7 +414,7 @@ func TestDialer_DialContext(t *testing.T) {
 	go acceptAndClose(ln)
 
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	d := ssrf.New()
+	d := ssrf.NewDialer()
 	conn, err := d.DialContext(context.Background(), "tcp", "127.0.0.1:"+port)
 	if err != nil {
 		t.Fatalf("expected connection to succeed, got: %v", err)
@@ -423,7 +423,7 @@ func TestDialer_DialContext(t *testing.T) {
 }
 
 func TestDialer_DialContext_BlocksPrivate(t *testing.T) {
-	d := ssrf.New(ssrf.NoPrivateRanges())
+	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
 	_, err := d.DialContext(context.Background(), "tcp", "127.0.0.1:80")
 	checkSSRFError(t, err, "private or reserved")
 }
@@ -431,32 +431,32 @@ func TestDialer_DialContext_BlocksPrivate(t *testing.T) {
 // ---- CheckIP ----------------------------------------------------------------
 
 func TestDialer_CheckIP_AllowsPublic(t *testing.T) {
-	d := ssrf.New(ssrf.NoPrivateRanges())
+	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
 	if err := d.CheckIP(net.ParseIP("93.184.216.34")); err != nil {
 		t.Errorf("CheckIP should allow public IP, got: %v", err)
 	}
 }
 
 func TestDialer_CheckIP_BlocksPrivate(t *testing.T) {
-	d := ssrf.New(ssrf.NoPrivateRanges())
+	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
 	err := d.CheckIP(net.ParseIP("10.0.0.1"))
 	checkSSRFError(t, err, "private or reserved")
 }
 
 func TestDialer_CheckIP_BlocksCGNAT(t *testing.T) {
-	d := ssrf.New(ssrf.NoPrivateRanges())
+	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
 	err := d.CheckIP(net.ParseIP("100.100.100.100"))
 	checkSSRFError(t, err, "private or reserved")
 }
 
 func TestDialer_CheckIP_BlocksDenied(t *testing.T) {
-	d := ssrf.New(ssrf.DenyCIDR("203.0.113.0/24"))
+	d := ssrf.NewDialer(ssrf.DenyCIDR("203.0.113.0/24"))
 	err := d.CheckIP(net.ParseIP("203.0.113.5"))
 	checkSSRFError(t, err, "denied range")
 }
 
 func TestDialer_CheckIP_RespectsAllow(t *testing.T) {
-	d := ssrf.New(ssrf.AllowCIDR("10.0.0.0/8"))
+	d := ssrf.NewDialer(ssrf.AllowCIDR("10.0.0.0/8"))
 	if err := d.CheckIP(net.ParseIP("10.1.2.3")); err != nil {
 		t.Errorf("CheckIP should allow IP in allowed range, got: %v", err)
 	}
@@ -465,7 +465,7 @@ func TestDialer_CheckIP_RespectsAllow(t *testing.T) {
 }
 
 func TestDialer_CheckIP_NormalisesIPv4Mapped(t *testing.T) {
-	d := ssrf.New(ssrf.NoPrivateRanges())
+	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
 	// ::ffff:127.0.0.1 should be normalised to 127.0.0.1 and blocked.
 	ip := net.ParseIP("::ffff:127.0.0.1")
 	err := d.CheckIP(ip)
@@ -485,7 +485,7 @@ func TestWithDialer_UsesProvidedDialer(t *testing.T) {
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 
 	base := &net.Dialer{Timeout: 5 * time.Second}
-	d := ssrf.New(ssrf.WithDialer(base))
+	d := ssrf.NewDialer(ssrf.WithDialer(base))
 	conn, err := d.DialContext(context.Background(), "tcp", "127.0.0.1:"+port)
 	if err != nil {
 		t.Fatalf("expected connection with custom dialer, got: %v", err)
@@ -501,7 +501,7 @@ func TestIPv4OnlyAndIPv6Only_Panics(t *testing.T) {
 			t.Error("expected panic when both IPv4Only and IPv6Only are set")
 		}
 	}()
-	ssrf.New(ssrf.IPv4Only(), ssrf.IPv6Only())
+	ssrf.NewDialer(ssrf.IPv4Only(), ssrf.IPv6Only())
 }
 
 func TestIPv4OnlyAndIPv6Only_PanicsViaDialContext(t *testing.T) {
