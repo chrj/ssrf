@@ -88,12 +88,8 @@ type options struct {
 	noPrivate  bool
 	allowCIDRs []*net.IPNet
 	denyCIDRs  []*net.IPNet
-<<<<<<< use-mock-dns
 	resolver   Resolver
-=======
-	resolver   *net.Resolver
 	dialer     *net.Dialer
->>>>>>> main
 }
 
 // Option is a functional option for configuring the SSRF protection dialer.
@@ -188,7 +184,7 @@ func WithDialer(d *net.Dialer) Option {
 //	}
 type Dialer struct {
 	opts     *options
-	resolver *net.Resolver
+	resolver Resolver
 	dialer   *net.Dialer
 }
 
