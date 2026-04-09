@@ -45,6 +45,8 @@ func init() {
 		"192.0.2.0/24",
 		"198.51.100.0/24",
 		"203.0.113.0/24",
+		// IPv4 CGNAT / Shared Address Space (RFC 6598)
+		"100.64.0.0/10",
 		// IPv4 benchmark
 		"198.18.0.0/15",
 		// IPv4 broadcast
