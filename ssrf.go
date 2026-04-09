@@ -52,10 +52,10 @@ func init() {
 		"192.0.2.0/24",
 		"198.51.100.0/24",
 		"203.0.113.0/24",
-		// IPv4 CGNAT / Shared Address Space (RFC 6598)
-		"100.64.0.0/10",
 		// IPv4 benchmark
 		"198.18.0.0/15",
+		// Reserved IPv4
+		"240.0.0.0/4",
 		// IPv4 broadcast
 		"255.255.255.255/32",
 		// IPv6 loopback
@@ -66,6 +66,8 @@ func init() {
 		"fc00::/7",
 		// IPv6 documentation
 		"2001:db8::/32",
+		// IPv6 Teredo tunneling
+		"2001::/32",
 	} {
 		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
@@ -176,16 +178,14 @@ func WithDialer(d *net.Dialer) Option {
 // validates the resolved IPs against the configured rules, and dials using
 // raw IP addresses to prevent DNS rebinding.
 //
-// Create one with New and plug it into http.Transport:
+// Create one with NewDialer and plug it into http.Transport:
 //
 //	d := ssrf.New(ssrf.NoPrivateRanges())
 //	client := &http.Client{
 //	    Transport: &http.Transport{DialContext: d.DialContext},
 //	}
 type Dialer struct {
-	opts     *options
-	resolver Resolver
-	dialer   *net.Dialer
+	opts *options
 }
 
 // New creates a new Dialer with the given options.
@@ -200,20 +200,16 @@ func NewDialer(opts ...Option) *Dialer {
 		panic("ssrf: IPv4Only and IPv6Only are mutually exclusive")
 	}
 
-	resolver := o.resolver
-	if resolver == nil {
-		resolver = net.DefaultResolver
+	if o.resolver == nil {
+		o.resolver = net.DefaultResolver
 	}
 
-	dialer := o.dialer
-	if dialer == nil {
-		dialer = &net.Dialer{}
+	if o.dialer == nil {
+		o.dialer = &net.Dialer{}
 	}
 
 	return &Dialer{
-		opts:     o,
-		resolver: resolver,
-		dialer:   dialer,
+		opts: o,
 	}
 }
 
@@ -279,7 +275,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 
 	// Resolve the host to IP addresses. This is the only DNS lookup that
 	// occurs; the validated IP is used directly in the dial below.
-	addrs, err := d.resolver.LookupIPAddr(ctx, host)
+	addrs, err := d.opts.resolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		return nil, fmt.Errorf("resolve %q: %w", host, err)
 	}
@@ -301,7 +297,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 		// Dial with the raw IP so we bypass any further DNS resolution and
 		// prevent DNS rebinding attacks.
 		dialAddr := net.JoinHostPort(ip.String(), port)
-		conn, err := d.dialer.DialContext(ctx, network, dialAddr)
+		conn, err := d.opts.dialer.DialContext(ctx, network, dialAddr)
 		if err != nil {
 			lastErr = err
 			continue
@@ -309,10 +305,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 		return conn, nil
 	}
 
-	if lastErr != nil {
-		return nil, lastErr
-	}
-	return nil, &Error{Reason: fmt.Sprintf("all resolved addresses for %s were denied", host)}
+	return nil, lastErr
 }
 
 // DialContext returns a DialContext function suitable for use with
