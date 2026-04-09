@@ -65,10 +65,12 @@ go get github.com/chrj/ssrf
 ```go
 import "github.com/chrj/ssrf"
 
+d := ssrf.NewDialer(
+    ssrf.NoPrivateRanges(), // block loopback, RFC-1918, link-local, …
+)
+
 transport := &http.Transport{
-    DialContext: ssrf.DialContext(
-        ssrf.NoPrivateRanges(), // block loopback, RFC-1918, link-local, …
-    ),
+    DialContext: d.DialContext,
 }
 client := &http.Client{Transport: transport}
 ```
@@ -80,10 +82,29 @@ TCP handshake with an `*ssrf.Error`.
 
 ## API reference
 
-### `ssrf.DialContext(opts ...ssrf.Option)`
+### `ssrf.NewDialer(opts ...ssrf.Option) *ssrf.Dialer`
 
-Returns a `func(ctx context.Context, network, addr string) (net.Conn, error)`
-that is directly assignable to `http.Transport.DialContext`. Options are
+Creates a new `Dialer` with the given options. The `Dialer`'s `DialContext`
+method is directly assignable to `http.Transport.DialContext`. Panics if the
+options are contradictory (e.g. both `IPv4Only` and `IPv6Only`).
+
+```go
+d := ssrf.NewDialer(ssrf.NoPrivateRanges())
+transport := &http.Transport{DialContext: d.DialContext}
+```
+
+### `(*ssrf.Dialer).CheckIP(ip net.IP) error`
+
+Validates a single IP address against the dialer's configured rules. Returns
+`nil` if the IP is allowed, or an `*ssrf.Error` explaining the denial. Useful
+when you need to validate an IP outside of a dial call (e.g. in middleware or
+logging).
+
+### `ssrf.DialContext(opts ...ssrf.Option)` *(deprecated)*
+
+Convenience wrapper around `NewDialer` that returns a bare
+`func(ctx context.Context, network, addr string) (net.Conn, error)`. Prefer
+`NewDialer` for access to the full `Dialer` API (e.g. `CheckIP`). Options are
 evaluated in the order listed below.
 
 ---
@@ -100,6 +121,7 @@ Blocks connections to all non-publicly-routable IP ranges:
 | `10.0.0.0/8` | RFC 1918 private |
 | `172.16.0.0/12` | RFC 1918 private |
 | `192.168.0.0/16` | RFC 1918 private |
+| `100.64.0.0/10` | CGNAT / Shared Address Space (RFC 6598) |
 | `169.254.0.0/16` | IPv4 link-local |
 | `0.0.0.0/8` | "This" network |
 | `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` | Documentation (TEST-NET) |
@@ -125,7 +147,7 @@ Blocks connections to one or more specific CIDR ranges. Multiple CIDRs can be
 passed in a single call or across multiple calls — they are additive.
 
 ```go
-ssrf.DialContext(
+ssrf.NewDialer(
     ssrf.DenyCIDR("10.0.0.0/8"),
     ssrf.DenyCIDR("192.168.0.0/16", "172.16.0.0/12"),
 )
@@ -146,7 +168,7 @@ denied.
 
 ```go
 // Only allow connections within your own CDN or partner ranges.
-ssrf.DialContext(
+ssrf.NewDialer(
     ssrf.AllowCIDR("203.0.113.0/24", "198.51.100.0/24"),
 )
 ```
@@ -164,7 +186,7 @@ Rejects any resolved IPv6 address. Useful when your infrastructure does not
 use IPv6 and you want to prevent unexpected outbound IPv6 connections.
 
 ```go
-ssrf.DialContext(ssrf.IPv4Only(), ssrf.NoPrivateRanges())
+ssrf.NewDialer(ssrf.IPv4Only(), ssrf.NoPrivateRanges())
 ```
 
 ---
@@ -190,12 +212,11 @@ resolver := &net.Resolver{
     },
 }
 
-transport := &http.Transport{
-    DialContext: ssrf.DialContext(
-        ssrf.NoPrivateRanges(),
-        ssrf.WithResolver(resolver),
-    ),
-}
+d := ssrf.NewDialer(
+    ssrf.NoPrivateRanges(),
+    ssrf.WithResolver(resolver),
+)
+transport := &http.Transport{DialContext: d.DialContext}
 ```
 
 **Testing — inject a fake resolver:**
@@ -209,14 +230,31 @@ func TestMyFetch(t *testing.T) {
         },
     }
 
-    transport := &http.Transport{
-        DialContext: ssrf.DialContext(
-            ssrf.NoPrivateRanges(),
-            ssrf.WithResolver(resolver),
-        ),
-    }
+    d := ssrf.NewDialer(
+        ssrf.NoPrivateRanges(),
+        ssrf.WithResolver(resolver),
+    )
+    transport := &http.Transport{DialContext: d.DialContext}
     // … exercise your code with the injected resolver
 }
+```
+
+---
+
+#### `ssrf.WithDialer(d *net.Dialer)`
+
+Sets the underlying `*net.Dialer` used for TCP connections. This allows callers
+to configure timeouts, keep-alive intervals, local address bindings, and other
+low-level dial options. If not provided, a zero-value `net.Dialer` is used.
+
+```go
+ssrf.NewDialer(
+    ssrf.NoPrivateRanges(),
+    ssrf.WithDialer(&net.Dialer{
+        Timeout:   5 * time.Second,
+        KeepAlive: 30 * time.Second,
+    }),
+)
 ```
 
 ---
@@ -266,14 +304,12 @@ IPv6 address 2001:db8::1 is not allowed (IPv4 only)
 ### Webhook dispatcher
 
 ```go
-transport := &http.Transport{
-    DialContext: ssrf.DialContext(
-        ssrf.NoPrivateRanges(), // never hit internal services
-        ssrf.IPv4Only(),        // your infra is IPv4-only
-    ),
-}
+d := ssrf.NewDialer(
+    ssrf.NoPrivateRanges(), // never hit internal services
+    ssrf.IPv4Only(),        // your infra is IPv4-only
+)
 client := &http.Client{
-    Transport: transport,
+    Transport: &http.Transport{DialContext: d.DialContext},
     Timeout:   10 * time.Second,
 }
 ```
@@ -281,25 +317,24 @@ client := &http.Client{
 ### URL preview / link unfurler
 
 ```go
-transport := &http.Transport{
-    DialContext: ssrf.DialContext(
-        ssrf.NoPrivateRanges(),
-    ),
-}
+d := ssrf.NewDialer(ssrf.NoPrivateRanges())
 // Redirects are followed by http.Client automatically; each hop goes through
 // the same DialContext, so a redirect to 192.168.x.x is also blocked.
-client := &http.Client{Transport: transport}
+client := &http.Client{
+    Transport: &http.Transport{DialContext: d.DialContext},
+}
 ```
 
 ### Strict allowlist (e.g. third-party API proxy)
 
 ```go
-transport := &http.Transport{
-    DialContext: ssrf.DialContext(
-        // Block private ranges first, then restrict to the known partner range.
-        ssrf.NoPrivateRanges(),
-        ssrf.AllowCIDR("198.51.100.0/24"),
-    ),
+d := ssrf.NewDialer(
+    // Block private ranges first, then restrict to the known partner range.
+    ssrf.NoPrivateRanges(),
+    ssrf.AllowCIDR("198.51.100.0/24"),
+)
+client := &http.Client{
+    Transport: &http.Transport{DialContext: d.DialContext},
 }
 ```
 
@@ -307,11 +342,10 @@ transport := &http.Transport{
 
 ```go
 func SafeHTTPClient() *http.Client {
+    d := ssrf.NewDialer(ssrf.NoPrivateRanges())
     return &http.Client{
-        Transport: &http.Transport{
-            DialContext: ssrf.DialContext(ssrf.NoPrivateRanges()),
-        },
-        Timeout: 15 * time.Second,
+        Transport: &http.Transport{DialContext: d.DialContext},
+        Timeout:   15 * time.Second,
     }
 }
 ```
