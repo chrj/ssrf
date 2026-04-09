@@ -54,6 +54,8 @@ func init() {
 		"203.0.113.0/24",
 		// IPv4 benchmark
 		"198.18.0.0/15",
+		// Reserved IPv4
+		"240.0.0.0/4",
 		// IPv4 broadcast
 		"255.255.255.255/32",
 		// IPv6 loopback
@@ -64,6 +66,8 @@ func init() {
 		"fc00::/7",
 		// IPv6 documentation
 		"2001:db8::/32",
+		// IPv6 Teredo tunneling
+		"2001::/32",
 	} {
 		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
