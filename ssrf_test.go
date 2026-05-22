@@ -629,6 +629,42 @@ func TestWithDialer_UsesProvidedDialer(t *testing.T) {
 	_ = conn.Close()
 }
 
+// ---- network parameter / option mismatch ----------------------------------
+
+func TestDialContext_IPv4Only_RejectsTCP6(t *testing.T) {
+	d := ssrf.NewDialer(ssrf.IPv4Only())
+	_, err := d.DialContext(context.Background(), "tcp6", "example.test:80")
+	checkSSRFError(t, err, "incompatible with IPv4Only")
+}
+
+func TestDialContext_IPv6Only_RejectsTCP4(t *testing.T) {
+	d := ssrf.NewDialer(ssrf.IPv6Only())
+	_, err := d.DialContext(context.Background(), "tcp4", "example.test:80")
+	checkSSRFError(t, err, "incompatible with IPv6Only")
+}
+
+func TestDialContext_IPv4Only_AllowsTCP4(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go acceptAndClose(ln)
+
+	_, port, _ := net.SplitHostPort(ln.Addr().String())
+
+	resolver := &mockdns.Resolver{Zones: map[string]mockdns.Zone{
+		"ipv4match.test.": {A: []string{"127.0.0.1"}},
+	}}
+
+	d := ssrf.NewDialer(ssrf.IPv4Only(), ssrf.WithResolver(resolver))
+	conn, err := d.DialContext(context.Background(), "tcp4", "ipv4match.test:"+port)
+	if err != nil {
+		t.Fatalf("IPv4Only with tcp4 should succeed: %v", err)
+	}
+	_ = conn.Close()
+}
+
 // ---- IPv4Only + IPv6Only mutual exclusion -----------------------------------
 
 func TestIPv4OnlyAndIPv6Only_Panics(t *testing.T) {
