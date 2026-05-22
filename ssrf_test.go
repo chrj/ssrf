@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -180,14 +181,18 @@ func TestNoPrivateRanges_BlocksIPv6ULA(t *testing.T) {
 }
 
 func TestNoPrivateRanges_AllowsPublicIPv4(t *testing.T) {
-	// We resolve to a public IP to verify NoPrivateRanges does not block it.
-	// The TCP dial will fail (no listener at that IP), but we only check that
-	// no ssrf.Error is returned.
+	// Resolve to a public IP to verify NoPrivateRanges does not block it.
+	// hermeticDialer aborts the dial before any packet is sent, so the test
+	// exercises the DialContext code path without making a real network call.
 	resolver := &mockdns.Resolver{Zones: map[string]mockdns.Zone{
-		"public.test.": {A: []string{"93.184.216.34"}},
+		"public.test.": {A: []string{"109.205.61.17"}},
 	}}
-	dial := ssrf.DialContext(ssrf.NoPrivateRanges(), ssrf.WithResolver(resolver))
-	_, err := dial(shortCtx(t), "tcp", "public.test:80")
+	dial := ssrf.DialContext(
+		ssrf.NoPrivateRanges(),
+		ssrf.WithResolver(resolver),
+		ssrf.WithDialer(hermeticDialer()),
+	)
+	_, err := dial(context.Background(), "tcp", "public.test:80")
 	if isSsrfError(err) {
 		t.Errorf("NoPrivateRanges should allow public IPs; got ssrf error: %v", err)
 	}
@@ -563,7 +568,7 @@ func TestDialer_DialContext_BlocksPrivate(t *testing.T) {
 
 func TestDialer_CheckIP_AllowsPublic(t *testing.T) {
 	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
-	if err := d.CheckIP(net.ParseIP("93.184.216.34")); err != nil {
+	if err := d.CheckIP(net.ParseIP("109.205.61.17")); err != nil {
 		t.Errorf("CheckIP should allow public IP, got: %v", err)
 	}
 }
@@ -668,15 +673,15 @@ func TestDenyCIDR_PanicOnBadCIDR(t *testing.T) {
 
 // ---- helpers ---------------------------------------------------------------
 
-// shortCtx returns a context that times out after 200 ms. This is long enough
-// for the synchronous SSRF validation step (which completes before any dial
-// is attempted) but short enough that tests do not hang when there is no
-// network listener at the target address.
-func shortCtx(t *testing.T) context.Context {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	t.Cleanup(cancel)
-	return ctx
+// hermeticDialer returns a *net.Dialer whose Control hook returns an error
+// before the connect syscall fires, so tests exercising the DialContext path
+// against a "public" IP never actually send a packet over the network.
+func hermeticDialer() *net.Dialer {
+	return &net.Dialer{
+		Control: func(network, address string, c syscall.RawConn) error {
+			return errors.New("hermetic: blocking real network dial")
+		},
+	}
 }
 
 func isSsrfError(err error) bool {
