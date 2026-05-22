@@ -268,6 +268,19 @@ func (d *Dialer) CheckIP(ip net.IP) error {
 // resolved IP against the configured rules, and dials the first allowed IP
 // using a raw IP address (preventing DNS rebinding).
 func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	// Reject network/option mismatches up front so callers get a clear SSRF
+	// error rather than an opaque OS-level "no suitable address" failure.
+	switch network {
+	case "tcp6", "udp6", "ip6":
+		if d.opts.ipv4Only {
+			return nil, &Error{Reason: fmt.Sprintf("network %q is incompatible with IPv4Only", network)}
+		}
+	case "tcp4", "udp4", "ip4":
+		if d.opts.ipv6Only {
+			return nil, &Error{Reason: fmt.Sprintf("network %q is incompatible with IPv6Only", network)}
+		}
+	}
+
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, fmt.Errorf("split host port: %w", err)
