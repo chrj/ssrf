@@ -180,7 +180,7 @@ func WithDialer(d *net.Dialer) Option {
 //
 // Create one with NewDialer and plug it into http.Transport:
 //
-//	d := ssrf.New(ssrf.NoPrivateRanges())
+//	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
 //	client := &http.Client{
 //	    Transport: &http.Transport{DialContext: d.DialContext},
 //	}
@@ -188,7 +188,7 @@ type Dialer struct {
 	opts *options
 }
 
-// New creates a new Dialer with the given options.
+// NewDialer creates a new Dialer with the given options.
 // Panics if the options are contradictory (e.g. both IPv4Only and IPv6Only).
 func NewDialer(opts ...Option) *Dialer {
 	o := &options{}
@@ -322,10 +322,10 @@ func (d *Dialer) DialContext(ctx context.Context, network, addr string) (net.Con
 }
 
 // DialContext returns a DialContext function suitable for use with
-// http.Transport.DialContext. It is a convenience wrapper around New; see
-// Dialer for the full API.
+// http.Transport.DialContext. It is a convenience wrapper around NewDialer;
+// see Dialer for the full API.
 //
-// Deprecated: Use New to create a Dialer and pass d.DialContext to
+// Deprecated: Use NewDialer to create a Dialer and pass d.DialContext to
 // http.Transport instead.
 func DialContext(opts ...Option) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return NewDialer(opts...).DialContext
