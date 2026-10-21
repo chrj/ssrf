@@ -2,7 +2,7 @@ module github.com/chrj/ssrf
 
 go 1.26.3
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require github.com/foxcpp/go-mockdns v1.3.0
 
