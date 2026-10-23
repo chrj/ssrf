@@ -34,6 +34,14 @@ func (e *Error) Error() string {
 // other non-routable IP ranges for both IPv4 and IPv6.
 var privateRanges []*net.IPNet
 
+// nat64Prefix is the NAT64 well-known prefix (RFC 6052). A NAT64 gateway
+// sends 64:ff9b::a.b.c.d to the IPv4 address a.b.c.d, so the embedded IPv4
+// address decides whether such an address is private.
+var nat64Prefix = &net.IPNet{
+	IP:   net.IP{0, 0x64, 0xff, 0x9b, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	Mask: net.CIDRMask(96, 128),
+}
+
 func init() {
 	for _, cidr := range []string{
 		// IPv4 loopback
@@ -58,8 +66,12 @@ func init() {
 		"240.0.0.0/4",
 		// IPv4 broadcast
 		"255.255.255.255/32",
+		// IPv6 unspecified. A dial to it reaches the local host.
+		"::/128",
 		// IPv6 loopback
 		"::1/128",
+		// IPv4-compatible IPv6 (deprecated, RFC 4291)
+		"::/96",
 		// IPv6 link-local
 		"fe80::/10",
 		// IPv6 unique local (ULA)
@@ -235,10 +247,8 @@ func (d *Dialer) CheckIP(ip net.IP) error {
 	}
 
 	if d.opts.noPrivate {
-		for _, r := range privateRanges {
-			if r.Contains(ip) {
-				return &Error{Reason: fmt.Sprintf("address %s is in a private or reserved range (%s)", ip, r)}
-			}
+		if err := checkPrivate(ip); err != nil {
+			return err
 		}
 	}
 
@@ -261,6 +271,28 @@ func (d *Dialer) CheckIP(ip net.IP) error {
 		}
 	}
 
+	return nil
+}
+
+// checkPrivate returns an *Error if ip is in a private or reserved range. For a
+// NAT64 address, it also checks the embedded IPv4 address.
+func checkPrivate(ip net.IP) error {
+	for _, r := range privateRanges {
+		if r.Contains(ip) {
+			return &Error{Reason: fmt.Sprintf("address %s is in a private or reserved range (%s)", ip, r)}
+		}
+	}
+
+	if !nat64Prefix.Contains(ip) {
+		return nil
+	}
+
+	embedded := ip[net.IPv6len-net.IPv4len:]
+	for _, r := range privateRanges {
+		if r.Contains(embedded) {
+			return &Error{Reason: fmt.Sprintf("address %s is a NAT64 address of %s, which is in a private or reserved range (%s)", ip, embedded, r)}
+		}
+	}
 	return nil
 }
 

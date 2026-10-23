@@ -608,6 +608,55 @@ func TestDialer_CheckIP_NormalisesIPv4Mapped(t *testing.T) {
 	checkSSRFError(t, err, "private or reserved")
 }
 
+func TestDialer_CheckIP_NoPrivateRanges_IPv6Forms(t *testing.T) {
+	tests := []struct {
+		ip      string
+		blocked bool
+	}{
+		// The unspecified address. A dial to it reaches the local host.
+		{"::", true},
+		// IPv4-compatible addresses (deprecated, RFC 4291).
+		{"::127.0.0.1", true},
+		{"::8.8.8.8", true},
+		// NAT64 well-known prefix (RFC 6052): the embedded IPv4 address decides.
+		{"64:ff9b::127.0.0.1", true},
+		{"64:ff9b::10.0.0.1", true},
+		{"64:ff9b::169.254.169.254", true},
+		{"64:ff9b::8.8.8.8", false},
+		// Public IPv6.
+		{"2606:4700:4700::1111", false},
+	}
+	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
+	for _, tt := range tests {
+		t.Run(tt.ip, func(t *testing.T) {
+			err := d.CheckIP(net.ParseIP(tt.ip))
+			if !tt.blocked {
+				if err != nil {
+					t.Errorf("CheckIP(%s) = %v; want nil", tt.ip, err)
+				}
+				return
+			}
+			checkSSRFError(t, err, "private or reserved")
+		})
+	}
+}
+
+func TestDialContext_BlocksUnspecifiedIPv6(t *testing.T) {
+	ln, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback not available: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatalf("split listener address: %v", err)
+	}
+
+	// Without the check, this dial reaches the listener on ::1.
+	err = dialAndExpect(t, net.JoinHostPort("::", port), true, ssrf.NoPrivateRanges())
+	checkSSRFError(t, err, "private or reserved")
+}
+
 // ---- WithDialer -------------------------------------------------------------
 
 func TestWithDialer_UsesProvidedDialer(t *testing.T) {
