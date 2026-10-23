@@ -126,15 +126,23 @@ Blocks connections to all non-publicly-routable IP ranges:
 | `0.0.0.0/8` | "This" network |
 | `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` | Documentation (TEST-NET) |
 | `198.18.0.0/15` | Benchmarking |
+| `240.0.0.0/4` | Reserved |
 | `255.255.255.255/32` | Broadcast |
+| `::/128` | IPv6 unspecified (a dial to it reaches the local host) |
 | `::1/128` | IPv6 loopback |
+| `::/96` | IPv4-compatible IPv6 (deprecated) |
 | `fe80::/10` | IPv6 link-local |
 | `fc00::/7` | IPv6 unique local (ULA) |
 | `2001:db8::/32` | IPv6 documentation |
+| `2001::/32` | Teredo tunneling |
 
 IPv4-mapped IPv6 addresses (e.g. `::ffff:192.168.1.1`) are automatically
 normalised to their IPv4 form before checking, so they are covered by the
 IPv4 rows above.
+
+NAT64 addresses in the well-known prefix `64:ff9b::/96` (RFC 6052) are blocked
+when the embedded IPv4 address is in one of the rows above. For example,
+`64:ff9b::127.0.0.1` is blocked and `64:ff9b::8.8.8.8` is allowed.
 
 This is the option you want for any application that fetches user-supplied
 URLs and must not reach internal infrastructure.
