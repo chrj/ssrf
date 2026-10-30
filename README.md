@@ -128,6 +128,8 @@ Blocks connections to all non-publicly-routable IP ranges:
 | `198.18.0.0/15` | Benchmarking |
 | `240.0.0.0/4` | Reserved |
 | `255.255.255.255/32` | Broadcast |
+| `224.0.0.0/4` | IPv4 multicast |
+| `192.0.0.0/24` | IETF protocol assignments (RFC 6890) |
 | `::/128` | IPv6 unspecified (a dial to it reaches the local host) |
 | `::1/128` | IPv6 loopback |
 | `::/96` | IPv4-compatible IPv6 (deprecated) |
@@ -135,6 +137,8 @@ Blocks connections to all non-publicly-routable IP ranges:
 | `fc00::/7` | IPv6 unique local (ULA) |
 | `2001:db8::/32` | IPv6 documentation |
 | `2001::/32` | Teredo tunneling |
+| `ff00::/8` | IPv6 multicast |
+| `64:ff9b:1::/48` | NAT64 local-use prefix (RFC 8215) |
 
 IPv4-mapped IPv6 addresses (e.g. `::ffff:192.168.1.1`) are automatically
 normalised to their IPv4 form before checking, so they are covered by the
@@ -143,6 +147,10 @@ IPv4 rows above.
 NAT64 addresses in the well-known prefix `64:ff9b::/96` (RFC 6052) are blocked
 when the embedded IPv4 address is in one of the rows above. For example,
 `64:ff9b::127.0.0.1` is blocked and `64:ff9b::8.8.8.8` is allowed.
+
+6to4 addresses in `2002::/16` (RFC 3056) follow the same rule. The IPv4
+address is in bytes 2 to 5. For example, `2002:7f00:1::1` (127.0.0.1) is
+blocked and `2002:808:808::1` (8.8.8.8) is allowed.
 
 This is the option you want for any application that fetches user-supplied
 URLs and must not reach internal infrastructure.
