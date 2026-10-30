@@ -623,8 +623,49 @@ func TestDialer_CheckIP_NoPrivateRanges_IPv6Forms(t *testing.T) {
 		{"64:ff9b::10.0.0.1", true},
 		{"64:ff9b::169.254.169.254", true},
 		{"64:ff9b::8.8.8.8", false},
+		// NAT64 local-use prefix (RFC 8215): the whole prefix is blocked.
+		{"64:ff9b:1::a9fe:a9fe", true},
+		{"64:ff9b:1::808:808", true},
+		// 6to4 (RFC 3056): the embedded IPv4 address decides.
+		{"2002:7f00:1::1", true},
+		{"2002:a9fe:a9fe::1", true},
+		{"2002:c0a8:101::1", true},
+		{"2002:808:808::1", false},
+		// IPv6 multicast.
+		{"ff02::fb", true},
+		{"ff05::1:3", true},
 		// Public IPv6.
 		{"2606:4700:4700::1111", false},
+	}
+	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
+	for _, tt := range tests {
+		t.Run(tt.ip, func(t *testing.T) {
+			err := d.CheckIP(net.ParseIP(tt.ip))
+			if !tt.blocked {
+				if err != nil {
+					t.Errorf("CheckIP(%s) = %v; want nil", tt.ip, err)
+				}
+				return
+			}
+			checkSSRFError(t, err, "private or reserved")
+		})
+	}
+}
+
+func TestDialer_CheckIP_NoPrivateRanges_IPv4Special(t *testing.T) {
+	tests := []struct {
+		ip      string
+		blocked bool
+	}{
+		// Multicast.
+		{"224.0.0.251", true},
+		{"239.255.255.250", true},
+		// IETF protocol assignments (RFC 6890).
+		{"192.0.0.1", true},
+		{"192.0.0.170", true},
+		// Public neighbours of the ranges above.
+		{"223.255.255.254", false},
+		{"192.0.1.1", false},
 	}
 	d := ssrf.NewDialer(ssrf.NoPrivateRanges())
 	for _, tt := range tests {
